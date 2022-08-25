@@ -1,0 +1,27 @@
+cpp:
+  - src/ble/meta.cc
+  - src/ble/service.cc
+  - src/ble/led.cc
+  - src/ble/userapp.cc
+  - src/cfg/flash_backend.cc
+  - src/core/ble.cc
+  - src/core/bootloader.cc
+  - src/core/buffer.cc
+  - src/core/cfg.cc
+  - src/core/color.cc
+  - src/core/led.cc
+  - src/core/log.cc
+  - src/core/meta.cc
+  - src/core/task.cc
+  - src/core/time.cc
+  - src/core/userapp.cc
+  - src/led/thread.cc
+  - src/userapp/desc.cc
+  - src/userapp/thread.cc
+  - src/dmx/thread.cc
+  - src/periph/spi.cc
+  - src/periph/spi_transcode.cc
+  - src/periph/uarte.cc
+
+includes:
+  - include
