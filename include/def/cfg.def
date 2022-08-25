@@ -1,0 +1,7 @@
+#ifdef CFG
+CFG(dmx_channel, 0x0000)
+CFG(led0_render, 0x0010)
+CFG(led1_render, 0x0011)
+CFG(led2_render, 0x0012)
+CFG(led3_render, 0x0013)
+#endif
