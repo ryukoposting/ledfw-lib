@@ -129,9 +129,9 @@ void on_sys_control_write(ble_gatts_evt_write_t const &event)
 
 #ifdef DEBUG
     } else if (event.len == 1 && event.data[0] == 0x02) {
-        static TaskStatus_t task_status_list[8] = {};
+        static TaskStatus_t task_status_list[16] = {};
 
-        auto ntasks = uxTaskGetSystemState(task_status_list, 8, nullptr);
+        auto ntasks = uxTaskGetSystemState(task_status_list, 16, nullptr);
         NRF_LOG_INFO("ntasks = %u", ntasks);
         for (size_t i = 0; i < ntasks; ++i) {
             TaskStatus_t *p = &task_status_list[i];

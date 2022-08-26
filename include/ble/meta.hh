@@ -12,6 +12,7 @@ namespace meta {
         CHARACTERISTIC(device_uid_char);
         CHARACTERISTIC(system_control_char);
         CHARACTERISTIC(log_char);
+        // CHARACTERISTIC(taskmgr_char);
 
         uint16_t service_handle() override;
 
