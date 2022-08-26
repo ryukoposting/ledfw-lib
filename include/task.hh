@@ -23,8 +23,11 @@ void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
 namespace task {
     ret_code_t init();
 
-    void schedule_gc();
-    void schedule_gc_from_isr(BaseType_t *do_yield);
+    void schedule_fds_gc();
+    void schedule_fds_gc_from_isr(BaseType_t *do_yield);
+
+    void schedule_pm_gc();
+    void schedule_pm_gc_from_isr(BaseType_t *do_yield);
 
     bool is_in_isr();
 

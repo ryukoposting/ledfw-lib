@@ -221,7 +221,7 @@ static void cfg_flash_thread(void *arg)
                     }
 
                     if (ret == FDS_ERR_NO_SPACE_IN_FLASH) {
-                        task::schedule_gc();
+                        task::schedule_fds_gc();
                         vTaskDelay(pdMS_TO_TICKS(2000));
                     } else {
                         APP_ERROR_CHECK(ret);

@@ -2,6 +2,7 @@
 #include "prelude.hh"
 #include "ble.hh"
 #include "meta.hh"
+#include "task.hh"
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
 #include "nrf_sdh.h"
@@ -234,6 +235,7 @@ static void set_advdata(void const *manuf, size_t manuf_len, ble_advdata_t *advd
 static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
 {
     uint32_t ret;
+    BaseType_t ignored_do_yield = pdFALSE;
 
     pm_handler_secure_on_connection(p_ble_evt);
 
@@ -251,6 +253,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         case BLE_GAP_EVT_DISCONNECTED:
             NRF_LOG_INFO("Disconnected");
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
+            task::schedule_pm_gc_from_isr(&ignored_do_yield);
             break;
 
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST: {

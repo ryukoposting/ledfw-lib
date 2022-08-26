@@ -4,10 +4,12 @@
 #include "log.hh"
 #include "fds.h"
 #include "time.hh"
+#include "peer_manager.h"
 #include "nrf_ble_lesc.h"
 NRF_LOG_MODULE_REGISTER();
 
-#define NOTIFY_FDS_GC 0x0001
+#define NOTIFY_FDS_GC       (1u << 0)
+#define NOTIFY_PEERS_GC     (1u << 1)
 
 static TaskHandle_t m_gc_task = nullptr;
 static void gc_thread(void *arg);
@@ -45,15 +47,26 @@ ret_code_t task::init()
     return NRF_SUCCESS;
 }
 
-void task::schedule_gc()
+void task::schedule_fds_gc()
 {
     xTaskNotify(m_gc_task, NOTIFY_FDS_GC, eSetBits);
 }
 
-void task::schedule_gc_from_isr(BaseType_t *do_yield)
+void task::schedule_fds_gc_from_isr(BaseType_t *do_yield)
 {
     xTaskNotifyFromISR(m_gc_task, NOTIFY_FDS_GC, eSetBits, do_yield);
 }
+
+void schedule_pm_gc()
+{
+    xTaskNotify(m_gc_task, NOTIFY_PEERS_GC, eSetBits);
+}
+
+void schedule_pm_gc_from_isr(BaseType_t *do_yield)
+{
+    xTaskNotifyFromISR(m_gc_task, NOTIFY_PEERS_GC, eSetBits, do_yield);
+}
+
 
 bool task::is_in_isr()
 {
@@ -68,6 +81,21 @@ static void gc_thread(void *arg)
         ret_code_t ret;
         uint32_t flags = 0;
         xTaskNotifyWait(0, UINT32_MAX, &flags, portMAX_DELAY);
+
+        if (flags & NOTIFY_PEERS_GC) {
+            auto n_peers = pm_peer_count();
+            if (n_peers > MAX_STORED_PEERS) {
+                pm_peer_id_t peer_id_to_delete;
+                ret = pm_peer_ranks_get(NULL, NULL, &peer_id_to_delete, NULL);
+                if (ret == NRF_SUCCESS) {
+                    NRF_LOG_INFO("Deleting oldest peer (peer_id: %d)", peer_id_to_delete);
+                    ret = pm_peer_delete(peer_id_to_delete);
+                    APP_ERROR_CHECK(ret);
+                } else {
+                    APP_ERROR_CHECK(ret);
+                }
+            }
+        }
 
         if (flags & NOTIFY_FDS_GC) {
             ret = fds_gc();

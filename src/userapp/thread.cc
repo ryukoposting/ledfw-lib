@@ -91,7 +91,7 @@ static void userapp_thread(void *arg)
             ret = save_tempbuf_to_flash(crc);
             CHECK_RET_MSG(ret, "Failed to save application");
 
-            task::schedule_gc();
+            task::schedule_fds_gc();
         }   break;
 
         case action::run: {
