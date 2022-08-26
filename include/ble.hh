@@ -77,7 +77,7 @@ namespace ble {
 
     void set_advertising_config(ble_adv_modes_config_t &config);
 
-    void set_advertising_data(void const *data, size_t len);
+    ret_code_t set_advertising_data(void const *data, size_t len);
 
     void disconnect(uint16_t conn_handle, ble::disconnect_reason reason);
 

@@ -58,8 +58,10 @@ static uint8_t m_manuf_adv_data[16] = {
     0x41, 0x98
 };
 
+// static constexpr size_t m_meta_adv_index = 0;
 static ble_uuid_t m_adv_uuids[] = {
-    {BLE_UUID_DEVICE_INFORMATION_SERVICE, BLE_UUID_TYPE_BLE}
+    // {BLE_UUID_DEVICE_INFORMATION_SERVICE, BLE_UUID_TYPE_BLE},
+    // {(uint16_t)ble::service_uuid::meta,   BLE_UUID_TYPE_UNKNOWN}
 };
 
 static void on_adv_evt(ble_adv_evt_t ble_adv_evt);
@@ -161,14 +163,14 @@ void ble::set_advertising_config(ble_adv_modes_config_t &config)
     ble_advertising_modes_config_set(&m_advertising, &config);
 }
 
-void ble::set_advertising_data(void const *data, size_t len)
+ret_code_t ble::set_advertising_data(void const *data, size_t len)
 {
     ble_advdata_t advdata = {};
     ble_advdata_manuf_data_t manuf_data = {};
     
     set_advdata(data, len, &advdata, &manuf_data);
 
-    ble_advertising_advdata_update(&m_advertising, &advdata, nullptr);
+    return ble_advertising_advdata_update(&m_advertising, &advdata, nullptr);
 }
 
 void ble::disconnect(uint16_t conn_handle, ble::disconnect_reason reason)
