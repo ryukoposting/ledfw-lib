@@ -44,13 +44,15 @@ struct buffer {
     constexpr buffer(void *p, size_t length):
         basep((uint8_t*)p),
         pos(0),
-        length(length)
+        length(length),
+        n_leading_zeros(0)
     {};
 
     constexpr buffer(void *p, size_t pos, size_t length):
         basep((uint8_t*)p),
         pos(pos),
-        length(length)
+        length(length),
+        n_leading_zeros(0)
     {};
 
     inline size_t len()
@@ -81,6 +83,7 @@ protected:
     uint8_t *basep;
     size_t pos;
     size_t length;
+    size_t n_leading_zeros;
 };
 
 template<size_t N, typename T = uint8_t>

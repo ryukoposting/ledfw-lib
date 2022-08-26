@@ -72,7 +72,7 @@ namespace spi {
 
         constexpr static size_t bytes_per_led = 24;
 
-        constexpr static size_t bytes_per_reset = 300;
+        constexpr static size_t bytes_per_reset = 1000;
 
         ret_code_t write_bus_reset() override;
 
@@ -96,7 +96,7 @@ namespace spi {
 
         constexpr static size_t bytes_per_led = 30;
 
-        constexpr static size_t bytes_per_reset = 380;
+        constexpr static size_t bytes_per_reset = 1000;
 
         ret_code_t write_bus_reset() override;
 
