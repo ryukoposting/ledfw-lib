@@ -4,6 +4,7 @@
 #include "log.hh"
 #include "fds.h"
 #include "time.hh"
+#include "nrf_ble_lesc.h"
 NRF_LOG_MODULE_REGISTER();
 
 #define NOTIFY_FDS_GC 0x0001
@@ -14,6 +15,11 @@ static void gc_thread(void *arg);
 void vApplicationIdleHook()
 {
     static int idle_count = 0;
+
+    ret_code_t ret;
+#if defined(USE_LESC) && USE_LESC
+    ret = nrf_ble_lesc_request_handler();
+#endif
 
     idle_count += 1;
 #if NRF_LOG_ENABLED
