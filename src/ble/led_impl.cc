@@ -233,14 +233,14 @@ ret_code_t svc::render(led::transcode *transcoder, led::renderer_props const &pr
             hsv.hue = SHIFT(ptr);
             hsv.saturation = SHIFT(ptr);
             hsv.value = SHIFT(ptr);
-            hsv.to_rgb(wval);
+            hsv.to_rgb(wval, color::curve::ws2812);
         }   break;
         case color_mode::hsl: {
             color::hsl hsl;
             hsl.hue = SHIFT(ptr);
             hsl.saturation = SHIFT(ptr);
             hsl.luminance = SHIFT(ptr);
-            hsl.to_rgb(wval);
+            hsl.to_rgb(wval, color::curve::ws2812);
         }   break;
         }
 

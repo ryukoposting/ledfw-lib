@@ -10,6 +10,11 @@ namespace color {
         BLUE,
     };
 
+    enum class curve {
+        none,
+        ws2812,
+    };
+
     packed_struct rgb {
         rgb(uint8_t r, uint8_t g, uint8_t b);
 
@@ -38,7 +43,7 @@ namespace color {
         uint8_t saturation;
         uint8_t value;
 
-        void to_rgb(rgb& result);
+        void to_rgb(rgb& result, curve curve);
     };
 
     packed_struct hsl {
@@ -50,6 +55,6 @@ namespace color {
         uint8_t saturation;
         uint8_t luminance;
 
-        void to_rgb(rgb& result);
+        void to_rgb(rgb& result, curve curve);
     };
 }
