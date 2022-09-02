@@ -14,6 +14,63 @@ namespace userapp {
         char const *app_id;
     };
 
+    /** @brief A DMX slot descriptor. */
+    struct dmx_slot {
+        constexpr dmx_slot(uint32_t addr):
+            buffer((uint32_t*)addr)
+        {};
+
+        inline uint8_t type() const  { return buffer[1] & 0xff; }
+        inline uint16_t id() const   { return (buffer[1] >> 8) & 0xffff; }
+        inline uint8_t value() const { return (buffer[1] >> 24) & 0xff; }
+        inline uint32_t addr() const { return (uint32_t)buffer; }
+
+        char const *name() const
+        {
+            if (buffer[0] >= USERCODE_START_ADDR && buffer[0] < USERCODE_START_ADDR + USERCODE_SIZE) {
+                return (char const*)buffer[0];
+            } else {
+                return nullptr;
+            }
+        }
+
+    protected:
+        uint32_t const *buffer;
+    };
+
+    /** @brief A DMX personality descriptor. */
+    struct dmx_pers {
+        constexpr dmx_pers(uint32_t addr):
+            buffer((uint32_t*)addr)
+        {};
+
+        inline uint32_t addr() const { return (uint32_t)buffer; }
+
+        inline char const *name() const
+        {
+            if (buffer[0] >= USERCODE_START_ADDR && buffer[0] < USERCODE_START_ADDR + USERCODE_SIZE) {
+                return (char const*)buffer[0];
+            } else {
+                return nullptr;
+            }
+        }
+
+        uint32_t const *dmx_slots_tbl() const
+        {
+            return &buffer[1];
+        }
+
+        size_t n_dmx_slots() const
+        {
+            size_t result;
+            for (result = 0; result <= MAX_USER_APP_SLOTS && buffer[result + 1]; ++result);
+            if (result > MAX_USER_APP_SLOTS) return 0;
+            return result;
+        }
+    protected:
+        uint32_t const *buffer;
+    };
+
     struct desc {
         constexpr desc(): desc(USERCODE_START_ADDR) {}
         constexpr desc(uint32_t addr):
@@ -59,6 +116,34 @@ namespace userapp {
 
         ret_code_t full_desc(desc_tbl &tbl) const;
 
+        uint32_t const *dmx_pers_tbl() const
+        {
+            return &buffer[8];
+        }
+
+        size_t n_dmx_pers() const
+        {
+            size_t result;
+            for (result = 0; result <= MAX_USER_APP_PERSONALITIES && buffer[result + 8]; ++result);
+            if (result > MAX_USER_APP_PERSONALITIES) return 0;
+            return result;
+        }
+
+        // template<typename T>
+        // using each_personality_t = ret_code_t (*)(T&, dmx_pers const&);
+
+        // template<typename T>
+        // inline ret_code_t each_personality(T &context, each_personality_t<T> func) const
+        // {
+        //     ret_code_t ret = NRF_SUCCESS;
+        //     for (size_t i = 8; buffer[i] && (ret == NRF_SUCCESS); ++i) {
+        //         auto pers = dmx_pers(buffer[i]);
+        //         ret = func(context, pers);
+        //         if (ret == BREAK)
+        //             return NRF_SUCCESS;
+        //     }
+        //     return ret;
+        // }
     protected:
         uint32_t const *buffer;
     };

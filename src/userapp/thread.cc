@@ -2,6 +2,7 @@
 #include "prelude.hh"
 #include "userapp.hh"
 #include "task.hh"
+#include "cfg.hh"
 #include "ble/meta.hh"
 #include "ble/userapp.hh"
 
@@ -34,6 +35,18 @@ static void userapp_thread(void *arg)
     unused(arg);
 
     ret_code_t ret;
+
+    auto channel_config_param = cfg::dmx::config;
+
+    cfg::dmx_config_t config;
+    ret = channel_config_param.get(&config);
+    if (ret == FDS_ERR_NOT_FOUND) {
+        config.channel = 0;
+        config.n_channels = 0;
+        config.personality = 0;
+        ret = channel_config_param.set(&config);
+    }
+    APP_ERROR_CHECK(ret);
 
     NRF_LOG_DEBUG("Loading application");
     ret = load_from_flash();
@@ -71,6 +84,8 @@ static void userapp_thread(void *arg)
         case action::begin_write:
             ret = clear_tempbuf();
             CHECK_RET_MSG(ret, "Failed to begin write");
+            ret = ble::set_conn_rate(ble::conn_rate::high_speed);
+            CHECK_RET_MSG(ret, "Failed to change conn rate");
             break;
 
         case action::write:
@@ -92,6 +107,9 @@ static void userapp_thread(void *arg)
             CHECK_RET_MSG(ret, "Failed to save application");
 
             task::schedule_fds_gc();
+
+            // ret = ble::set_conn_rate(ble::conn_rate::normal);
+            // CHECK_RET_MSG(ret, "Failed to change conn rate");
         }   break;
 
         case action::run: {
@@ -101,11 +119,63 @@ static void userapp_thread(void *arg)
 
             ret = load_from_tempbuf();
             CHECK_RET_MSG(ret, "Failed to load application");
+
+            // ret = ble::set_conn_rate(ble::conn_rate::normal);
+            // CHECK_RET_MSG(ret, "Failed to change conn rate");
+        }   break;
+
+        case action::dmx_config: {
+            ret = channel_config_param.set(&actn.dmx_config.config);
+            CHECK_RET_MSG(ret, "DMX config failed");
         }   break;
 
         case action::send_state:
             send_state();
             break;
+
+        case action::dmx_explorer: {
+            if (get_app_state() != app_state::user_app_loaded || ble::conn_handle() == BLE_CONN_HANDLE_INVALID)
+                continue;
+
+            auto d = desc();
+
+            ACTN_ASSERT(actn.dmx_explorer.personality < d.n_dmx_pers(), "Personality does not exist");
+            auto pers = dmx_pers(d.dmx_pers_tbl()[actn.dmx_explorer.personality]);
+
+            /* send personality info */
+            if (actn.dmx_explorer.command == dmx_explorer_cmd::get_personality_info ||
+                actn.dmx_explorer.command == dmx_explorer_cmd::get_personality_and_slot_info)
+            {
+                service().send_personality_info(
+                    actn.dmx_explorer.personality,
+                    pers.n_dmx_slots(),
+                    pers);
+            }
+
+            /* send slot info */
+            if (actn.dmx_explorer.command == dmx_explorer_cmd::get_slot_info) {
+                ACTN_ASSERT(actn.dmx_explorer.slot < pers.n_dmx_slots(), "Slot does not exist");
+                auto slot = dmx_slot(pers.dmx_slots_tbl()[actn.dmx_explorer.slot]);
+
+                service().send_slot_info(
+                    actn.dmx_explorer.personality,
+                    actn.dmx_explorer.slot,
+                    slot);
+            }
+
+            /* send all slot info */
+            if (actn.dmx_explorer.command == dmx_explorer_cmd::get_personality_and_slot_info) {
+                auto const n_slots = pers.n_dmx_slots();
+                for (size_t i = 0; i < n_slots; ++i) {
+                    auto slot = dmx_slot(pers.dmx_slots_tbl()[i]);
+
+                    service().send_slot_info(
+                        actn.dmx_explorer.personality,
+                        i,
+                        slot);
+                }
+            }
+        }
         }
     }
 }
@@ -117,7 +187,7 @@ ret_code_t userapp::init_thread()
         return NRF_ERROR_NO_MEM;
     }
 
-    m_action_queue = xQueueCreate(16, sizeof(userapp::queued_action));
+    m_action_queue = xQueueCreate(24, sizeof(userapp::queued_action));
     if (m_action_queue == nullptr) {
         return NRF_ERROR_NO_MEM;
     }

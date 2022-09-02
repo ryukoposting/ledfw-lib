@@ -5,6 +5,7 @@
 #include "task.hh"
 
 #define DMX_MAX_FRAME_SIZE 520
+#define RDM_MAX_FRAME_SIZE 257
 #define DMX_MAX_QUEUED_FRAMES 8
 
 namespace dmx {

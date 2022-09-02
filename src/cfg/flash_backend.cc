@@ -8,10 +8,17 @@ using namespace cfg;
 
 #define FDS_FILE_ID 0x4111
 
+struct subs_ll {
+    void *context;
+    subscription_t callback;
+    subs_ll *next;
+};
+
 struct param_cache {
     size_t length = 0;
     size_t alloc_length = 0;
     void *data = nullptr;
+    subs_ll *subs;
 };
 
 struct rcontext {
@@ -24,6 +31,12 @@ struct wcontext {
     id record_id;
     void const *data;
     size_t length;
+    bool did_change;
+};
+
+struct scontext {
+    id record_id;
+    subs_ll *sub;
 };
 
 static void fds_callback(fds_evt_t const *event);
@@ -64,7 +77,7 @@ ret_code_t cfg::init_flash_backend()
     auto status = xTaskCreate(
         cfg_flash_thread,
         "CFG-FLASH",
-        256,
+        128,
         nullptr,
         1,
         &m_cfg_flash_task
@@ -135,7 +148,7 @@ ret_code_t flash_backend::read(id record_id, void *data, size_t length)
 ret_code_t flash_backend::write(id record_id, void const *data, size_t length)
 {
     ret_code_t ret;
-    auto context = wcontext { record_id, data, length };
+    auto context = wcontext { record_id, data, length, true };
 
     ret = m_cache_lock.write<wcontext>(context, [](wcontext &context) -> ret_code_t {
         auto const index = id_to_index(context.record_id);
@@ -147,6 +160,7 @@ ret_code_t flash_backend::write(id record_id, void const *data, size_t length)
                 if (m_cache[index].alloc_length == context.length &&
                     memcmp(m_cache[index].data, context.data, context.length) == 0)
                 {
+                    context.did_change = false;
                     return NRF_SUCCESS; /* no change from current data, return success */
                 }
                 memcpy(m_cache[index].data, context.data, context.length);
@@ -174,9 +188,47 @@ ret_code_t flash_backend::write(id record_id, void const *data, size_t length)
         return NRF_SUCCESS;
     });
 
+    if (ret == NRF_SUCCESS && context.did_change) {
+        m_cache_lock.read<cfg::id>(record_id, [](cfg::id &record_id) -> ret_code_t {
+            auto const index = id_to_index(record_id);
+            auto subs = m_cache[index].subs;
+            for (; subs; subs = subs->next) {
+                auto p = cfg::param_hdr_size + (uint8_t*)m_cache[index].data;
+                subs->callback(subs->context, p, m_cache[index].length);
+            }
+            return NRF_SUCCESS;
+        });
+    }
+
     return ret;
 }
 
+ret_code_t flash_backend::subscribe(id record_id, void *cb_context, subscription_t callback)
+{
+    if (!callback)
+        return NRF_ERROR_NULL;
+
+    ret_code_t ret;
+
+    subs_ll *sub = (subs_ll*)pvPortMalloc(sizeof(subs_ll));
+    if (!sub)
+        return NRF_ERROR_NO_MEM;
+
+    sub->context = cb_context;
+    sub->callback = callback;
+    sub->next = nullptr;
+
+    auto context = scontext { record_id, sub };
+
+    ret = m_cache_lock.write<scontext>(context, [](scontext &context) -> ret_code_t {
+        auto index = id_to_index(context.record_id);
+        context.sub->next = m_cache[index].subs;
+        m_cache[index].subs = context.sub;
+        return NRF_SUCCESS;
+    });
+
+    return ret;
+}
 
 static void cfg_flash_thread(void *arg)
 {
@@ -221,6 +273,7 @@ static void cfg_flash_thread(void *arg)
                     }
 
                     if (ret == FDS_ERR_NO_SPACE_IN_FLASH) {
+                        NRF_LOG_WARNING("Out of flash storage space, running GC and trying again")
                         task::schedule_fds_gc();
                         vTaskDelay(pdMS_TO_TICKS(2000));
                     } else {

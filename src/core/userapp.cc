@@ -318,6 +318,27 @@ ret_code_t userapp::with(void *context, with_cb_t func)
     });
 }
 
+ret_code_t userapp::with_desc(void *context, with_desc_t func)
+{
+    return m_lock.read<void*, with_desc_t>(context, func, [] (void *&context, with_desc_t &func) -> ret_code_t {
+        if (m_app_state != app_state::user_app_loaded) {
+            return ERROR_USERCODE_NOT_AVAILABLE;
+        }
+
+        ret_code_t ret;
+        // auto context = context_buf[0];
+        // auto func = (with_cb_t)context_buf[1];
+
+        auto d = desc(USERCODE_START_ADDR);
+        auto tbl = desc_tbl {};
+
+        ret = d.full_desc(tbl);
+        VERIFY_SUCCESS(ret);
+
+        return func(context, d);
+    });
+}
+
 app_state userapp::get_app_state()
 {
     return m_app_state;

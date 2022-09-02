@@ -6,6 +6,8 @@
 #include "util.hh"
 
 #define APP_INFO_VERSION 1
+#define DMX_INFO_VERSION 1
+#define DMX_STRING_MAX 32u
 
 using namespace userapp;
 
@@ -19,15 +21,45 @@ enum app_info_ind: size_t {
     APP_INFO_LEN = 8
 };
 
+enum dmx_info_ind: size_t {
+    I_DMX_VER = 0,
+    I_DMX_N_PERSONALITIES = 1,
+    I_DMX_CUR_PERSONALITY = 2,
+    I_DMX_N_SLOTS = 3,
+    DMX_INFO_LEN = 4
+};
+
+enum dmx_pers_data: size_t {
+    I_PERS_MTYPE = 0,
+    I_PERS_N = 1,
+    I_PERS_N_SLOTS = 2,
+    I_PERS_NAME = 3,
+};
+
+enum dmx_slot_data: size_t {
+    I_SLOT_MTYPE = 0,
+    I_SLOT_PERS_N = 1,
+    I_SLOT_N = 2,
+    I_SLOT_TYPE = 3,
+    I_SLOT_ID = 4,
+    I_SLOT_VALUE = 6,
+    I_SLOT_NAME = 7
+};
+
 static userapp::service::program_char m_program;
 static userapp::service::info_char m_info;
 static userapp::service::app_name_char m_app_name;
 static userapp::service::app_provider_char m_app_provider;
+static userapp::service::dmx_info_char m_dmx_info;
+static userapp::service::dmx_explorer_char m_dmx_explorer;
 
 static uint16_t m_service_handle = BLE_GATT_HANDLE_INVALID;
 
 static void on_program_write(ble_gatts_evt_write_t const &event);
 BLE_GATT_WRITE_OBSERVER(m_program_write, m_program, on_program_write);
+
+static void on_dmx_explorer_write(ble_gatts_evt_write_t const &event);
+BLE_GATT_WRITE_OBSERVER(m_dmx_explorer_write, m_dmx_explorer, on_dmx_explorer_write);
 
 CHARACTERISTIC_DEF(userapp::service, program_char,
     "Program",
@@ -55,6 +87,20 @@ CHARACTERISTIC_DEF(userapp::service, app_provider_char,
     ble::char_uuid::ucode_app_provider,
     ble_gatt_char_props_t { .read = true, .notify = true },
     MAX_USER_APP_PROVIDER_LEN)
+{}
+
+CHARACTERISTIC_DEF(userapp::service, dmx_info_char,
+    "DMX Info",
+    ble::char_uuid::ucode_dmx_info,
+    ble_gatt_char_props_t { .read = true, .notify = true },
+    DMX_INFO_LEN)
+{}
+
+CHARACTERISTIC_DEF(userapp::service, dmx_explorer_char,
+    "DMX Explorer",
+    ble::char_uuid::ucode_dmx_explore,
+    ble_gatt_char_props_t { .write = true, .notify = true},
+    DMX_EXPLORER_LEN)
 {}
 
 userapp::service::service(): ble::service(ble::service_uuid::ucode)
@@ -92,22 +138,60 @@ ret_code_t userapp::service::init()
         m_app_provider.set_presentation_format(&pf);
         ret = add_characteristic(m_app_provider);
         VERIFY_SUCCESS(ret);
+
+        m_dmx_info = service::dmx_info_char();
+        ret = add_characteristic(m_dmx_info);
+        VERIFY_SUCCESS(ret);
+
+        m_dmx_explorer = service::dmx_explorer_char();
+        ret = add_characteristic(m_dmx_explorer);
+        VERIFY_SUCCESS(ret);
     }
 
     return ret;
 }
 
-ret_code_t userapp::service::update_app_info(desc_tbl const &desc, app_state appst, storage_state storst)
+struct appinfo_dmx_iter {
+    uint8_t cur_dmx_personality;
+    size_t n_personalities;
+    size_t n_slots;
+};
+
+ret_code_t userapp::service::update_app_info(desc const &desc, app_state appst, storage_state storst)
 {
     ret_code_t ret;
+    desc_tbl tbl;
+    uint8_t dmx_info[DMX_INFO_LEN] = {};
 
     ret = update_app_info(appst, storst);
     VERIFY_SUCCESS(ret);
 
-    ret = set_app_name(desc.app_name);
+    ret = desc.full_desc(tbl);
     VERIFY_SUCCESS(ret);
 
-    ret = set_provider_name(desc.provider_name);
+    ret = set_app_name(tbl.app_name);
+    VERIFY_SUCCESS(ret);
+
+    ret = set_provider_name(tbl.provider_name);
+    VERIFY_SUCCESS(ret);
+
+    size_t cur_pers = 0; // TODO
+    size_t n_pers = desc.n_dmx_pers();
+    size_t n_slots = 0;
+    if (n_pers > cur_pers) {
+        auto pers = dmx_pers(desc.dmx_pers_tbl()[cur_pers]);
+        n_slots = pers.n_dmx_slots();
+    }
+
+    dmx_info[I_DMX_VER] = DMX_INFO_VERSION;
+    dmx_info[I_DMX_N_PERSONALITIES] = desc.n_dmx_pers();
+    dmx_info[I_DMX_CUR_PERSONALITY] = cur_pers; // TODO
+    dmx_info[I_DMX_N_SLOTS] = n_slots;
+
+    ret = m_dmx_info.set_value(dmx_info, DMX_INFO_LEN);
+    VERIFY_SUCCESS(ret);
+
+    ret = m_dmx_info.send(dmx_info, DMX_INFO_LEN);
     VERIFY_SUCCESS(ret);
 
     return ret;
@@ -176,6 +260,41 @@ ret_code_t userapp::service::set_provider_name(char const *name)
     return ret;
 }
 
+ret_code_t userapp::service::send_personality_info(uint8_t index, uint8_t n_slots, dmx_pers const &pers)
+{
+    uint8_t buf[DMX_EXPLORER_LEN];
+    buf[I_PERS_MTYPE] = (uint8_t)dmx_explorer_resp::personality_info;
+    buf[I_PERS_N] = index;
+    buf[I_PERS_N_SLOTS] = n_slots;
+
+    size_t name_len = 0;
+    if (pers.name()) {
+        name_len = strnlen(pers.name(), std::min(DMX_EXPLORER_LEN - I_PERS_NAME, DMX_STRING_MAX));
+        memcpy(&buf[I_PERS_NAME], pers.name(), name_len);
+    }
+
+    return m_dmx_explorer.send(buf, name_len + I_PERS_NAME);
+}
+
+ret_code_t userapp::service::send_slot_info(uint8_t pers, uint8_t index, dmx_slot const &slot)
+{
+    uint8_t buf[DMX_EXPLORER_LEN];
+    buf[I_SLOT_MTYPE] = (uint8_t)dmx_explorer_resp::slot_info;
+    buf[I_SLOT_PERS_N] = pers;
+    buf[I_SLOT_N] = index;
+    buf[I_SLOT_TYPE] = slot.type();
+    uint16_encode(slot.id(), &buf[I_SLOT_ID]);
+    buf[I_SLOT_VALUE] = slot.value();
+
+    size_t name_len = 0;
+    if (slot.name()) {
+        name_len = strnlen(slot.name(), std::min(DMX_EXPLORER_LEN - I_SLOT_NAME, DMX_STRING_MAX));
+        memcpy(&buf[I_SLOT_NAME], slot.name(), name_len);
+    }
+
+    return m_dmx_explorer.send(buf, name_len + I_SLOT_NAME);
+}
+
 uint16_t userapp::service::service_handle()
 {
     return m_service_handle;
@@ -189,18 +308,12 @@ uint16_t *userapp::service::service_handle_ptr()
 ret_code_t userapp::send_state()
 {
     ret_code_t ret;
-    desc_tbl tbl = {};
     auto appst = get_app_state();
     auto storst = get_storage_state();
-    ret = desc().full_desc(tbl);
+    auto d = desc();
 
-    if (ret == NRF_SUCCESS) {
-        ret = service().update_app_info(tbl, appst, storst);
-        VERIFY_SUCCESS(ret);
-    } else {
-        ret = service().update_app_info(appst, storst);
-        VERIFY_SUCCESS(ret);
-    }
+    ret = service().update_app_info(d, appst, storst);
+    VERIFY_SUCCESS(ret);
 
     return ret;
 }
@@ -266,5 +379,23 @@ static void on_program_write(ble_gatts_evt_write_t const &event)
         if (ret != NRF_SUCCESS) {
             NRF_LOG_ERROR("queue_run: %u", ret);
         }
+    }
+}
+
+/*
+    01 xx           get info for personality xx
+    02 xx yy        get info for slot yy of personality xx
+    03 xx           get info for personality xx and all its slots
+*/
+static void on_dmx_explorer_write(ble_gatts_evt_write_t const &event)
+{
+    if (!event.data) return;
+
+    if (event.len == 2 && event.data[0] == (uint8_t)dmx_explorer_cmd::get_personality_info) {
+        queue_dmx_explore(dmx_explorer_cmd::get_personality_info, event.data[1], 0);
+    } else if (event.len == 3 && event.data[0] == (uint8_t)dmx_explorer_cmd::get_slot_info) {
+        queue_dmx_explore(dmx_explorer_cmd::get_slot_info, event.data[1], event.data[2]);
+    } else if (event.len == 2 && event.data[0] == (uint8_t)dmx_explorer_cmd::get_personality_and_slot_info) {
+        queue_dmx_explore(dmx_explorer_cmd::get_personality_and_slot_info, event.data[1], 0);
     }
 }

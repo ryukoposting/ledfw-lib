@@ -44,6 +44,18 @@
     } while (0)
 #endif
 
+#ifndef dassert
+#ifdef NDEBUG
+#define dassert(expr) ((void)expr)
+#else
+#define dassert(expr) do {\
+        if (!(expr)) {\
+            APP_ERROR_HANDLER(ERROR_ASSERT);\
+        }\
+    } while (0)
+#endif /* !NDEBUG */
+#endif /* dassert */
+
 #ifndef unreachable
 #define unreachable() do {\
         APP_ERROR_HANDLER(ERROR_UNREACHABLE);\

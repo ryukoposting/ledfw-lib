@@ -3,6 +3,8 @@
 #include "prelude.hh"
 
 namespace cfg {
+    constexpr size_t param_hdr_size = 2;
+
     template<typename T>
     packed_struct param_value {
         param_value(T const *t, uint16_t ver):
@@ -23,9 +25,10 @@ namespace cfg {
         uint8_t _padding_[sizeof(size_t) - 1 - ((sizeof(T) + 1) % sizeof(size_t))];
     };
 
-    packed_struct dmx_channel_t {
+    packed_struct dmx_config_t {
         uint16_t channel;
         uint16_t n_channels;
+        uint8_t personality;
     };
 
     packed_struct led_render_t {

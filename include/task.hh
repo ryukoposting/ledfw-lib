@@ -3,6 +3,7 @@
 #include "prelude.hh"
 #include "util.hh"
 #include "semphr.h"
+#include "nrf_atomic.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +31,42 @@ namespace task {
     void schedule_pm_gc_from_isr(BaseType_t *do_yield);
 
     bool is_in_isr();
+
+    struct atomic {
+        constexpr atomic(uint32_t initial): value(initial) {}
+
+        inline uint32_t fetch_store(uint32_t x)
+        {
+            return nrf_atomic_u32_fetch_store(&value, x);
+        }
+
+        inline uint32_t store(uint32_t x)
+        {
+            return nrf_atomic_u32_fetch_store(&value, x);
+        }
+
+        inline uint32_t operator++()
+        {
+            return nrf_atomic_u32_add(&value, 1);
+        }
+    
+        inline uint32_t operator++(int)
+        {
+            return nrf_atomic_u32_fetch_add(&value, 1);
+        }
+
+        inline uint32_t operator--()
+        {
+            return nrf_atomic_u32_sub_hs(&value, 1);
+        }
+
+        inline uint32_t operator--(int)
+        {
+            return nrf_atomic_u32_fetch_sub_hs(&value, 1);
+        }
+    protected:
+        uint32_t value;
+    };
 
     struct rw_lock {
         ret_code_t init();

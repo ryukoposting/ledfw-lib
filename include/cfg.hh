@@ -6,12 +6,17 @@
 #include "cfg/types.hh"
 
 namespace cfg {
-    template<typename T, id ID, uint16_t VER, class B = flash_backend>
+    template<typename T, class B = flash_backend>
     struct param {
-        static constexpr auto id = ID;
-        static constexpr auto version = VER;
+        constexpr param(id ID, uint16_t VER):
+            idn(ID),
+            version(VER)
+        {}
 
-        static inline ret_code_t get(T *value)
+        id idn;
+        uint16_t version;
+
+        inline ret_code_t get(T *value)
         {
             if (!value)
                 return NRF_ERROR_NULL;
@@ -19,7 +24,7 @@ namespace cfg {
             ret_code_t ret;
             param_value<T> data;
 
-            ret = B().read(id, (void*)&data, sizeof(data));
+            ret = B().read(idn, (void*)&data, sizeof(data));
             VERIFY_SUCCESS(ret);
 
             if (data.version != version)
@@ -30,7 +35,7 @@ namespace cfg {
             return ret;
         }
 
-        static inline ret_code_t set(T const *value)
+        inline ret_code_t set(T const *value)
         {
             if (!value)
                 return NRF_ERROR_NULL;
@@ -38,10 +43,15 @@ namespace cfg {
             ret_code_t ret;
             auto data = param_value<T>(value, version);
 
-            ret = B().write(id, (void const*)&data, sizeof(data));
+            ret = B().write(idn, (void const*)&data, sizeof(data));
             VERIFY_SUCCESS(ret);
 
             return ret;
+        }
+
+        inline ret_code_t subscribe(void *context, subscription_t callback)
+        {
+            return B().subscribe(idn, context, callback);
         }
     };
 
@@ -51,23 +61,23 @@ namespace cfg {
 
     /* DMX configuration parameters */
     namespace dmx {
-        using channel = param<dmx_channel_t, id::dmx_channel, 1>;
+        constexpr auto config = param<dmx_config_t>(id::dmx_channel, 1);
     }
 
     /* LED driver configuration parameters */
     namespace led0 {
-        using render = param<led_render_t, id::led0_render, 1>;
+        constexpr auto render = param<led_render_t>(id::led0_render, 1);
     }
 
     namespace led1 {
-        using render = param<led_render_t, id::led1_render, 1>;
+        constexpr auto render = param<led_render_t>(id::led1_render, 1);
     }
 
     namespace led2 {
-        using render = param<led_render_t, id::led2_render, 1>;
+        constexpr auto render = param<led_render_t>(id::led2_render, 1);
     }
 
     namespace led3 {
-        using render = param<led_render_t, id::led3_render, 1>;
+        constexpr auto render = param<led_render_t>(id::led3_render, 1);
     }
 }

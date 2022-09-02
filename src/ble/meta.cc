@@ -133,7 +133,7 @@ void on_sys_control_write(ble_gatts_evt_write_t const &event)
 
         auto ntasks = uxTaskGetSystemState(task_status_list, 16, nullptr);
         NRF_LOG_INFO("ntasks = %u", ntasks);
-        for (size_t i = 0; i < ntasks; ++i) {
+        for (size_t i = 0; i < ntasks && i < 16; ++i) {
             TaskStatus_t *p = &task_status_list[i];
             NRF_LOG_INFO("%s cur_prio=%d state=%d stack=%u", p->pcTaskName, p->uxCurrentPriority, p->eCurrentState, p->usStackHighWaterMark);
         }

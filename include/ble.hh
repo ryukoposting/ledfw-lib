@@ -22,6 +22,7 @@ namespace ble {
 #if MAX_LED_CHANNELS >= 4
         led3 = 0x4300,
 #endif
+        dmx = 0x5000,
     };
 
     enum class char_uuid: uint16_t {
@@ -33,6 +34,8 @@ namespace ble {
         ucode_info         = 0x02 + (uint16_t)service_uuid::ucode,
         ucode_app_name     = 0x03 + (uint16_t)service_uuid::ucode,
         ucode_app_provider = 0x04 + (uint16_t)service_uuid::ucode,
+        ucode_dmx_info     = 0x10 + (uint16_t)service_uuid::ucode,
+        ucode_dmx_explore  = 0x11 + (uint16_t)service_uuid::ucode,
 
         led0_length        = 0x01 + (uint16_t)service_uuid::led0, // read/write led strip length
         led0_color_mode    = 0x02 + (uint16_t)service_uuid::led0, // hsv/hsl/rgb
@@ -56,6 +59,14 @@ namespace ble {
         led3_refresh_rate  = 0x03 + (uint16_t)service_uuid::led3, // read/write refresh rate
         led3_control       = 0x80 + (uint16_t)service_uuid::led3, // reset, simple programming functionality
 #endif
+
+        dmx_values         = 0x01 + (uint16_t)service_uuid::dmx,
+        dmx_config         = 0x10 + (uint16_t)service_uuid::dmx
+    };
+
+    enum class conn_rate {
+        normal,
+        high_speed
     };
 
     struct notification {
@@ -84,6 +95,8 @@ namespace ble {
     uint8_t uuid_type();
 
     size_t max_att_data_len();
+
+    ret_code_t set_conn_rate(conn_rate rate);
 
     static inline ble_uuid_t uuid_for_service(service_uuid uuid)
     {

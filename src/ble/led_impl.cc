@@ -12,25 +12,23 @@ struct service_context {
     uint8_t buf_num_leds[2];
     uint8_t buf_color_mode[1];
     uint8_t buf_refresh_rate[2];
-    uint8_t buf_control[64];
+    cfg::param<cfg::led_render_t> config_param;
     bool reset_strip;
-    bool config_changed;
     size_t seqwrite_offset;
-    size_t dmx_data_len;
-    cfg::led_render_t config;
-    uint8_t dmx_data[MAX_SUBSCRIBED_DMX_CHANNELS];
     uint8_t user_buffer[MAX_LEDS_PER_THREAD * 3];
 
-    void set_refresh_msec(uint16_t value);
-    void reset_refresh_msec();
-    void set_color_mode(uint8_t value);
-    void reset_color_mode();
-    void set_num_leds(uint16_t value);
-    void reset_num_leds();
+    void reject_write_color_mode(ble::characteristic *characteristic);
+    void reject_write_refresh_rate(ble::characteristic *characteristic);
+    void reject_write_num_leds(ble::characteristic *characteristic);
+    void accept_write_color_mode(uint8_t value, ble::characteristic *characteristic);
+    void accept_write_refresh_rate(uint16_t value, ble::characteristic *characteristic);
+    void accept_write_num_leds(uint16_t value, ble::characteristic *characteristic);
 };
 extern uint16_t m_service_handles[MAX_LED_CHANNELS] = {};
 extern service_context m_context[MAX_LED_CHANNELS] = {};
 extern xSemaphoreHandle m_dmx_lock[MAX_LED_CHANNELS] = {};
+extern bool handle_led_prop_write_is_initialized();
+extern ret_code_t init_handle_led_prop_write();
 using namespace led;
 #endif /* VSCODE */
 
@@ -43,7 +41,6 @@ using namespace led;
 #define m_refresh_rate concat(m_refresh_rate_,CHN)
 #define m_control concat(m_control_,CHN)
 #define context (m_context[CHN])
-#define m_dmx_mutex (m_dmx_lock[CHN])
 #define SCHN stringify(CHN)
 
 static svc::num_leds_char m_num_leds;
@@ -67,8 +64,8 @@ BLE_GATT_WRITE_OBSERVER(concat(m_refresh_rate,_write), m_refresh_rate, on_refres
 static void on_control_write(ble_gatts_evt_write_t const &event);
 BLE_GATT_WRITE_OBSERVER(concat(m_control,_write), m_control, on_control_write);
 
-#define set_led_chan concat(set_led_chan_,CHN)
-static void set_led_chan(led_chan &chan);
+// #define set_led_chan concat(set_led_chan_,CHN)
+// static void set_led_chan(led_chan &chan);
 
 // #define init_leds_cb concat(init_leds_cb_,CHN)
 // static ret_code_t init_leds_cb(userapp::init_func_t init, userapp::refresh_func_t refresh, void *ctxt);
@@ -116,12 +113,6 @@ svc::svc(): ble::service(ble::service_uuid::led0), led::renderer()
 ret_code_t svc::init()
 {
     ret_code_t ret = NRF_SUCCESS;
-    
-    if (m_dmx_mutex == nullptr) {
-        m_dmx_mutex = xSemaphoreCreateMutex();
-        if (m_dmx_mutex == nullptr)
-            return NRF_ERROR_NO_MEM;
-    }
 
     auto pf = ble_gatts_char_pf_t {
         .name_space = BLE_GATT_CPF_NAMESPACE_BTSIG,
@@ -153,6 +144,12 @@ ret_code_t svc::init()
         m_control = svc::control_char();
         ret = add_characteristic(m_control);
         VERIFY_SUCCESS(ret);
+
+        if (!handle_led_prop_write_is_initialized())
+            ret = init_handle_led_prop_write();
+        VERIFY_SUCCESS(ret);
+
+        context.config_param = cfgx::render;
     }
 
     return ret;
@@ -168,77 +165,53 @@ uint16_t *svc::service_handle_ptr()
     return &m_service_handles[CHN];
 }
 
-ret_code_t svc::prepare_config()
+ret_code_t svc::render(led::transcode *transcoder, led::renderer_props const &props)
 {
     ret_code_t ret;
-
-    ret = cfgx::render::get(&context.config);
-    if (ret == FDS_ERR_NOT_FOUND) {
-        context.config = cfg::led_render_t {
-            .n_leds = MAX_LEDS_PER_THREAD,
-            .refresh_msec = DEFAULT_REFRESH_RATE_MSEC,
-            .color_mode = (uint8_t)led::color_mode::rgb
-        };
-        ret = cfgx::render::set(&context.config);
-    }
-
-    return ret;
-}
-
-ret_code_t svc::check_config()
-{
-    ret_code_t ret = NRF_SUCCESS;
-
-    if (context.config_changed)
-        ret = cfgx::render::set(&context.config);
-
-    return ret;
-}
-
-ret_code_t svc::render(led::transcode *transcoder, BaseType_t &refresh_msec)
-{
-    ret_code_t ret;
+    bool do_fill_zeros = false;
     
     ret = transcoder->write_bus_reset();
     VERIFY_SUCCESS(ret);
 
-    refresh_msec = context.config.refresh_msec;
-    bool do_fill_zeros = false;
+    auto chan = led_chan(props);
+    chan.buffer = context.user_buffer;
+    chan.id = CHN;
 
     if (context.reset_strip) {
         context.reset_strip = false;
         do_fill_zeros = true;
-        auto op = [] (userapp::init_func_t init, userapp::refresh_func_t refresh, void *ctxt) -> ret_code_t {
-            unused(ctxt);
+
+        ret = userapp::with(&chan, [] (userapp::init_func_t init, userapp::refresh_func_t refresh, void *ctxt) -> ret_code_t {
             unused(refresh);
-            led_chan chan;
-            set_led_chan(chan);
-            init(&chan);
-            if (chan.color_mode != (uint8_t)context.config.color_mode) {
-                NRF_LOG_DEBUG("App set color mode to %u", chan.color_mode);
-                context.set_color_mode(chan.color_mode);
-            }
+            led_chan *chan = (led_chan*)ctxt;
+            init(chan);
             return NRF_SUCCESS;
-        };
-        ret = userapp::with(nullptr, op);
+        });
+
+        if (chan.color_mode != (uint8_t)props.render_config.color_mode) {
+            NRF_LOG_DEBUG("(init) App set color mode from %u to %u", props.render_config.color_mode, chan.color_mode);
+            context.accept_write_color_mode(chan.color_mode, &m_color_mode);
+        }
+
         if (ret == ERROR_USERCODE_NOT_AVAILABLE)
             ret = NRF_SUCCESS; // ignore 'user code unavailable' error
         VERIFY_SUCCESS(ret);
 
-    } else if (context.config.n_leds > 0) {
-        auto op = [] (userapp::init_func_t init, userapp::refresh_func_t refresh, void *ctxt) -> ret_code_t {
-            unused(ctxt);
-            unused(init);
-            led_chan chan;
-            set_led_chan(chan);
-            refresh(&chan);
-            if (chan.color_mode != (uint8_t)context.config.color_mode) {
-                NRF_LOG_DEBUG("App set color mode to %u", chan.color_mode);
-                context.set_color_mode(chan.color_mode);
-            }
+
+    } else if (props.render_config.n_leds > 0) {
+
+        ret = userapp::with(&chan, [] (userapp::init_func_t init, userapp::refresh_func_t refresh, void *ctxt) -> ret_code_t {
+            unused(refresh);
+            led_chan *chan = (led_chan*)ctxt;
+            refresh(chan);
             return NRF_SUCCESS;
-        };
-        ret = userapp::with(nullptr, op);
+        });
+
+        if (chan.color_mode != (uint8_t)props.render_config.color_mode) {
+            NRF_LOG_DEBUG("(refresh) App set color mode from %u to %u", props.render_config.color_mode, chan.color_mode);
+            context.accept_write_color_mode(chan.color_mode, &m_color_mode);
+        }
+
         if (ret == ERROR_USERCODE_NOT_AVAILABLE)
             ret = NRF_SUCCESS; // ignore 'user code unavailable' error
         VERIFY_SUCCESS(ret);
@@ -246,10 +219,10 @@ ret_code_t svc::render(led::transcode *transcoder, BaseType_t &refresh_msec)
 
     uint8_t *ptr = context.user_buffer;
 
-    for (size_t i = 0; i < context.config.n_leds && i < MAX_LEDS_PER_THREAD; ++i) {
+    for (size_t i = 0; i < props.render_config.n_leds && i < MAX_LEDS_PER_THREAD; ++i) {
         color::rgb wval;
 
-        switch ((color_mode)context.config.color_mode) {
+        switch ((color_mode)props.render_config.color_mode) {
         case color_mode::rgb:
             wval.red = SHIFT(ptr);
             wval.green = SHIFT(ptr);
@@ -277,7 +250,7 @@ ret_code_t svc::render(led::transcode *transcoder, BaseType_t &refresh_msec)
 
     if (do_fill_zeros) {
         auto off = color::rgb(color::BLACK);
-        for (size_t i = context.config.n_leds; i < MAX_LEDS_PER_THREAD; ++i) {
+        for (size_t i = props.render_config.n_leds; i < MAX_LEDS_PER_THREAD; ++i) {
             ret = transcoder->write(off);
             VERIFY_SUCCESS(ret);
         }
@@ -289,20 +262,11 @@ ret_code_t svc::render(led::transcode *transcoder, BaseType_t &refresh_msec)
     return NRF_SUCCESS;
 }
 
-ret_code_t svc::set_dmx(uint8_t const *vals, size_t length, TickType_t max_delay)
+ret_code_t svc::init_render(led::renderer_props const &props)
 {
-    if (length > 0 && !vals)
-        return NRF_ERROR_NULL;
-
-    auto taken = xSemaphoreTake(m_dmx_mutex, max_delay);
-    if (!taken)
-        return NRF_ERROR_BUSY;
-
-    context.dmx_data_len = length;
-    if (vals)
-        memcpy(context.dmx_data, vals, length);
-
-    xSemaphoreGive(m_dmx_mutex);
+    context.buf_color_mode[0] = props.render_config.color_mode;
+    uint16_encode(props.render_config.n_leds, context.buf_num_leds);
+    uint16_encode(props.render_config.refresh_msec, context.buf_refresh_rate);
     return NRF_SUCCESS;
 }
 
@@ -323,8 +287,7 @@ static void on_num_leds_write(ble_gatts_evt_write_t const &event)
     if (event.len != 2 || !event.data) {
         meta::service()
             .print("Malformed write to Channel " SCHN " 'Number of LEDs' characteristic (invalid length)");
-        context.reset_num_leds();
-        m_num_leds.send(notif);
+        context.reject_write_num_leds(&m_num_leds);
         return;
     }
 
@@ -333,11 +296,11 @@ static void on_num_leds_write(ble_gatts_evt_write_t const &event)
     if (num_leds > MAX_LEDS_PER_THREAD) {
         meta::service()
             .print("Invalid number of LEDs (maximum: " stringify(MAX_LEDS_PER_THREAD) ")");
-        context.reset_num_leds();
+        context.reject_write_num_leds(&m_num_leds);
         m_num_leds.send(notif);
     } else {
         context.reset_strip = true;
-        context.set_num_leds(num_leds);
+        context.accept_write_num_leds(num_leds, &m_num_leds);
     }
 }
 
@@ -353,16 +316,16 @@ static void on_color_mode_write(ble_gatts_evt_write_t const &event)
     if (event.len != 1 || !event.data) {
         meta::service()
             .print("Malformed write to Channel " SCHN " 'Color Mode' characteristic (invalid length)");
-        context.reset_color_mode();
+        context.reject_write_color_mode(&m_color_mode);
         m_color_mode.send(notif);
     } else if (event.data[0] > 2) {
         meta::service()
             .print("Invalid color mode (must be 0, 1, or 2)");
-        context.reset_color_mode();
+        context.reject_write_color_mode(&m_color_mode);
         m_color_mode.send(notif);
     } else {
         context.reset_strip = true;
-        context.set_color_mode(event.data[0]);
+        context.accept_write_color_mode(event.data[0], &m_color_mode);
     }
 }
 
@@ -378,7 +341,7 @@ static void on_refresh_rate_write(ble_gatts_evt_write_t const &event)
     if (event.len != 2 || !event.data) {
         meta::service()
             .print("Malformed write to Channel " SCHN " 'Refresh Rate' characteristic (invalid length)");
-        context.reset_refresh_msec();
+        context.reject_write_refresh_rate(&m_refresh_rate);
         m_refresh_rate.send(notif);
         return;
     }
@@ -388,15 +351,15 @@ static void on_refresh_rate_write(ble_gatts_evt_write_t const &event)
     if (refresh_msec < MINIMUM_REFRESH_RATE_MSEC) {
         meta::service()
             .print("Invalid refresh interval (minimum: " stringify(MINIMUM_REFRESH_RATE_MSEC) ")");
-        context.reset_refresh_msec();
+        context.reject_write_refresh_rate(&m_refresh_rate);
         m_refresh_rate.send(notif);
     } else if (refresh_msec > MAXIMUM_REFRESH_RATE_MSEC) {
         meta::service()
             .print("Invalid refresh interval (maximum: " stringify(MAXIMUM_REFRESH_RATE_MSEC) ")");
-        context.reset_refresh_msec();
+        context.reject_write_refresh_rate(&m_refresh_rate);
         m_refresh_rate.send(notif);
     } else {
-        context.set_refresh_msec(refresh_msec);
+        context.accept_write_refresh_rate(refresh_msec, &m_refresh_rate);
     }
 }
 
@@ -435,29 +398,4 @@ static void on_control_write(ble_gatts_evt_write_t const &event)
             context.user_buffer[pos+2] = event.data[i++];
         }
     }
-}
-
-static void set_led_chan(led_chan &chan)
-{
-    constexpr auto read_wait_msec = MINIMUM_REFRESH_RATE_MSEC - 4;
-    static_assert(read_wait_msec > 0);
-
-    static uint8_t dmx_data[MAX_SUBSCRIBED_DMX_CHANNELS] = {};
-    static size_t dmx_data_len = 0;
-
-    chan.id = CHN;
-    chan.buffer = context.user_buffer;
-    chan.color_mode = (uint8_t)context.config.color_mode;
-    chan.refresh_rate = context.config.refresh_msec;
-    chan.n_leds = context.config.n_leds;
-
-    auto taken = xSemaphoreTake(m_dmx_mutex, pdMS_TO_TICKS(read_wait_msec));
-    if (taken == pdTRUE) {
-        memcpy(dmx_data, context.dmx_data, std::min(sizeof(dmx_data), sizeof(context.dmx_data)));
-        dmx_data_len = context.dmx_data_len;
-        xSemaphoreGive(m_dmx_mutex);
-    }
-
-    chan.dmx_vals = dmx_data;
-    chan.dmx_vals_len = dmx_data_len;
 }

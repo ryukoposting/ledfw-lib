@@ -1,6 +1,10 @@
 #pragma once
 
 #include "prelude.hh"
+#include "userapp/types.hh"
+#include "cfg.hh"
+
+#define DMX_EXPLORER_LEN 48
 
 namespace userapp {
     enum class action: uint32_t {
@@ -10,7 +14,20 @@ namespace userapp {
         begin_write,
         commit,
         run,
-        send_state
+        send_state,
+        dmx_config,
+        dmx_explorer,
+    };
+
+    enum class dmx_explorer_cmd: uint8_t {
+        get_personality_info = 1,
+        get_slot_info = 2,
+        get_personality_and_slot_info = 3,
+    };
+
+    enum class dmx_explorer_resp: uint8_t {
+        personality_info = 1,
+        slot_info = 2,
     };
 
     packed_struct queued_action_other {
@@ -32,6 +49,16 @@ namespace userapp {
         uint16_t crc;
     };
 
+    packed_struct queued_action_dmx_config {
+        cfg::dmx_config_t config;
+    };
+
+    packed_struct queued_action_dmx_explorer {
+        dmx_explorer_cmd command;
+        uint8_t personality;
+        uint8_t slot;
+    };
+
     packed_struct queued_action {
         action type;
         union {
@@ -39,6 +66,8 @@ namespace userapp {
             queued_action_write write;
             queued_action_commit commit;
             queued_action_run run;
+            queued_action_dmx_config dmx_config;
+            queued_action_dmx_explorer dmx_explorer;
         };
     };
 
@@ -76,8 +105,12 @@ namespace userapp {
             return NRF_ERROR_INVALID_LENGTH;
         }
 
+        if (!buffer) {
+            return NRF_ERROR_NULL;
+        }
+
         auto mbuffer = pvPortMalloc(length);
-        if (buffer == nullptr) {
+        if (mbuffer == nullptr) {
             return NRF_ERROR_NO_MEM;
         }
 
@@ -132,6 +165,26 @@ namespace userapp {
         BaseType_t do_yield;
         auto actn = queued_action {
             .type = action::send_state
+        };
+        return queue_action(&actn, &do_yield);
+    }
+
+    inline ret_code_t queue_dmx_config(cfg::dmx_config_t config)
+    {
+        BaseType_t do_yield;
+        auto actn = queued_action {
+            .type = action::dmx_config,
+            .dmx_config = queued_action_dmx_config { config }
+        };
+        return queue_action(&actn, &do_yield);
+    }
+
+    inline ret_code_t queue_dmx_explore(dmx_explorer_cmd command, uint8_t personality, uint8_t slot)
+    {
+        BaseType_t do_yield;
+        auto actn = queued_action {
+            .type = action::dmx_explorer,
+            .dmx_explorer = queued_action_dmx_explorer { command, personality, slot }
         };
         return queue_action(&actn, &do_yield);
     }

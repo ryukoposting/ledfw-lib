@@ -31,9 +31,14 @@ NRF_LOG_MODULE_REGISTER();
 #define APP_ADV_INTERVAL MSEC_TO_UNITS( 500, UNIT_0_625_MS) /** Advertising interval */
 #define APP_ADV_DURATION MSEC_TO_UNITS(4000, UNIT_10_MS)    /** Advertising duration */
 
-#define MIN_CONN_INTERVAL MSEC_TO_UNITS(120, UNIT_1_25_MS)  /** Minimum acceptable connection interval */
-#define MAX_CONN_INTERVAL MSEC_TO_UNITS(240, UNIT_1_25_MS)  /** Maximum acceptable connection interval */
-#define SLAVE_LATENCY 0                                     /** Slave latency. */
+#define MIN_CONN_INTERVAL_NORMAL MSEC_TO_UNITS(120, UNIT_1_25_MS)  /** Minimum acceptable connection interval */
+#define MAX_CONN_INTERVAL_NORMAL MSEC_TO_UNITS(240, UNIT_1_25_MS)  /** Maximum acceptable connection interval */
+#define SLAVE_LATENCY_NORMAL     0                                 /** Slave latency. */
+
+#define MIN_CONN_INTERVAL_HIGH_SPEED MSEC_TO_UNITS(90,  UNIT_1_25_MS)  /** Minimum acceptable connection interval */
+#define MAX_CONN_INTERVAL_HIGH_SPEED MSEC_TO_UNITS(120, UNIT_1_25_MS)  /** Maximum acceptable connection interval */
+#define SLAVE_LATENCY_HIGH_SPEED     0                                 /** Slave latency. */
+
 #define CONN_SUP_TIMEOUT MSEC_TO_UNITS(4000, UNIT_10_MS)    /** Connection supervisory time-out */
 
 #define FIRST_CONN_PARAMS_UPDATE_DELAY  5000                /** Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
@@ -58,6 +63,8 @@ NRF_BLE_QWR_DEF(m_qwr);
 BLE_ADVERTISING_DEF(m_advertising);
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;
+
+static auto m_conn_rate_sem = task::atomic(0);
 
 static uint8_t m_manuf_adv_data[16] = {
     0x41, 0x98
@@ -208,6 +215,44 @@ size_t ble::max_att_data_len()
     return ATT_MTU - 3;
 }
 
+ret_code_t ble::set_conn_rate(ble::conn_rate rate)
+{
+    assert(!task::is_in_isr());
+
+    if (ble::conn_handle() == BLE_CONN_HANDLE_INVALID)
+        return NRF_SUCCESS;
+
+    ret_code_t ret = NRF_SUCCESS;
+
+    switch (rate) {
+    case ble::conn_rate::normal: if (1 == m_conn_rate_sem--) {
+        auto conn_params = ble_gap_conn_params_t {
+            .min_conn_interval = MIN_CONN_INTERVAL_NORMAL,
+            .max_conn_interval = MAX_CONN_INTERVAL_NORMAL,
+            .slave_latency = SLAVE_LATENCY_NORMAL,
+            .conn_sup_timeout = CONN_SUP_TIMEOUT,
+        };
+
+        ret = ble_conn_params_change_conn_params(ble::conn_handle(), &conn_params);
+    }   break;
+
+    case ble::conn_rate::high_speed: if (0 == m_conn_rate_sem++) {
+        auto conn_params = ble_gap_conn_params_t {
+            .min_conn_interval = MIN_CONN_INTERVAL_HIGH_SPEED,
+            .max_conn_interval = MAX_CONN_INTERVAL_HIGH_SPEED,
+            .slave_latency = SLAVE_LATENCY_HIGH_SPEED,
+            .conn_sup_timeout = CONN_SUP_TIMEOUT,
+        };
+
+        ret = ble_conn_params_change_conn_params(ble::conn_handle(), &conn_params);
+    }   break;
+
+    default: return NRF_ERROR_INVALID_PARAM;
+    }
+
+    return ret;
+}
+
 static void set_advdata(void const *manuf, size_t manuf_len, ble_advdata_t *advdata, ble_advdata_manuf_data_t *manuf_data)
 {
     advdata->name_type               = BLE_ADVDATA_FULL_NAME;
@@ -246,6 +291,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             ret = bsp_indication_set(BSP_INDICATE_CONNECTED);
             APP_ERROR_CHECK(ret);
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
+            m_conn_rate_sem.store(0);
             ret = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
             APP_ERROR_CHECK(ret);
             break;
@@ -253,6 +299,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
         case BLE_GAP_EVT_DISCONNECTED:
             NRF_LOG_INFO("Disconnected");
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
+            m_conn_rate_sem.store(0);
             task::schedule_pm_gc_from_isr(&ignored_do_yield);
             break;
 
@@ -319,9 +366,9 @@ static ret_code_t gap_params_init(void)
 
     memset(&gap_conn_params, 0, sizeof(gap_conn_params));
 
-    gap_conn_params.min_conn_interval = MIN_CONN_INTERVAL;
-    gap_conn_params.max_conn_interval = MAX_CONN_INTERVAL;
-    gap_conn_params.slave_latency     = SLAVE_LATENCY;
+    gap_conn_params.min_conn_interval = MIN_CONN_INTERVAL_NORMAL;
+    gap_conn_params.max_conn_interval = MAX_CONN_INTERVAL_NORMAL;
+    gap_conn_params.slave_latency     = SLAVE_LATENCY_NORMAL;
     gap_conn_params.conn_sup_timeout  = CONN_SUP_TIMEOUT;
 
     err_code = sd_ble_gap_ppcp_set(&gap_conn_params);
@@ -473,10 +520,10 @@ static ret_code_t peer_manager_init(void)
     sec_param.oob            = SEC_PARAM_OOB;
     sec_param.min_key_size   = SEC_PARAM_MIN_KEY_SIZE;
     sec_param.max_key_size   = SEC_PARAM_MAX_KEY_SIZE;
-    sec_param.kdist_own.enc  = 1;
-    sec_param.kdist_own.id   = 1;
-    sec_param.kdist_peer.enc = 1;
-    sec_param.kdist_peer.id  = 1;
+    sec_param.kdist_own.enc  = SEC_PARAM_BOND;
+    sec_param.kdist_own.id   = SEC_PARAM_BOND;
+    sec_param.kdist_peer.enc = SEC_PARAM_BOND;
+    sec_param.kdist_peer.id  = SEC_PARAM_BOND;
 
     err_code = pm_sec_params_set(&sec_param);
     VERIFY_SUCCESS(err_code);

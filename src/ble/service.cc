@@ -137,7 +137,7 @@ ret_code_t ble::characteristic::send(notification &data, size_t *n_sent)
         *n_sent = (ret == NRF_SUCCESS) ? *hvx.p_len : 0;
     }
 
-    if (ret == NRF_ERROR_INVALID_STATE) {
+    if (ret == NRF_ERROR_INVALID_STATE || ret == BLE_ERROR_INVALID_CONN_HANDLE) {
         ret = NRF_SUCCESS; // ignore error where notification is not currently enabled
     }
 

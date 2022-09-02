@@ -13,10 +13,8 @@
         CHARACTERISTIC(color_mode_char);\
         CHARACTERISTIC(refresh_rate_char);\
         CHARACTERISTIC(control_char);\
-        ret_code_t render(led::transcode *transcoder, BaseType_t &refresh_msec) override;\
-        ret_code_t prepare_config() override;\
-        ret_code_t check_config() override;\
-        ret_code_t set_dmx(uint8_t const *vals, size_t length, TickType_t max_delay);\
+        ret_code_t render(led::transcode *transcoder, led::renderer_props const &props) override;\
+        ret_code_t init_render(led::renderer_props const &props) override;\
         uint16_t service_handle() override;\
         void reset();\
         \

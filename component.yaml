@@ -3,6 +3,7 @@ cpp:
   - src/ble/service.cc
   - src/ble/led.cc
   - src/ble/userapp.cc
+  - src/ble/dmx.cc
   - src/cfg/flash_backend.cc
   - src/core/ble.cc
   - src/core/bootloader.cc

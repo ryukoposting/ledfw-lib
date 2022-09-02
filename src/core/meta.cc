@@ -63,7 +63,8 @@ char const *meta::mfg_name()
 meta::rdm_id_t meta::device_rdm_uid()
 {
     auto result = meta::rdm_id_t {};
-    uint48_encode(m_device_uid, result.bytes);
+    uint16_big_encode(RDM_MANUF_ID, result.bytes);
+    uint32_encode(m_device_uid, &result.bytes[2]);
     return result;
 }
 

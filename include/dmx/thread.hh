@@ -3,58 +3,68 @@
 #include "prelude.hh"
 #include "dmx/transport.hh"
 #include "message_buffer.h"
+#include "util.hh"
+#include "cfg.hh"
+#include "task/lock.hh"
 
 namespace dmx {
-    using on_new_chan_values_t = void (*)(uint8_t const *vals, size_t chan, size_t len, void *context);
+    struct dmx_slot_vals {
+        size_t n_vals;
+        uint8_t const *vals;
+    };
+
+    using on_dmx_slot_vals_t = void (*)(void *, dmx_slot_vals const *, cfg::dmx_config_t const *);
+
     struct thread {
         constexpr thread():
-            sub_start(0),
-            n_sub(0),
             rx_buffer {},
-            task_handle(nullptr),
-            queue_handle(nullptr),
-            on_new_chan_values(nullptr),
-            on_new_chan_values_context(nullptr)
+            packet_task_handle(nullptr),
+            slot_vals_subs(nullptr),
+            packet_queue_handle(nullptr),
+            dmx_config(),
+            slot_vals_subs_mutex(nullptr)
         {}
+
+        struct on_dmx_slot_vals_sub {
+            constexpr on_dmx_slot_vals_sub(on_dmx_slot_vals_t callback, void *context):
+                callback(callback),
+                context(context),
+                next(nullptr)
+            {}
+            on_dmx_slot_vals_t callback;
+            void *context;
+            on_dmx_slot_vals_sub *next;
+        };
 
         ret_code_t init();
 
-        TaskHandle_t handle();
-
+        /* sets the buffer that the thread will use to receive DMX/RDM packets */
         void set_frame_buf(MessageBufferHandle_t queue);
 
         inline bool is_initialized()
         {
-            return handle() != nullptr;
+            return packet_task_handle != nullptr;
         }
 
-        inline ret_code_t set_subscription(size_t start, size_t len)
+        ret_code_t on_dmx_slot_vals(void *context, on_dmx_slot_vals_t callback, TickType_t max_delay);
+
+        inline ret_code_t on_dmx_slot_vals(void *context, on_dmx_slot_vals_t callback)
         {
-            if (start + len > 512 || (start == 0 && len > 0))
-                return NRF_ERROR_INVALID_PARAM;
-            if (len > MAX_SUBSCRIBED_DMX_CHANNELS)
-                return NRF_ERROR_INVALID_PARAM;
-
-            sub_start = start;
-            n_sub = len;
-            return NRF_SUCCESS;
+            return on_dmx_slot_vals(context, callback, portMAX_DELAY);
         }
 
-        inline void set_on_new_chan_values(void *context, on_new_chan_values_t callback)
-        {
-            on_new_chan_values = callback;
-            on_new_chan_values_context = context;
-        }
+        ret_code_t send(dmx_slot_vals const *);
 
-        void task_func();
-
+        void packet_task_func();
+        void slot_vals_task_func();
     protected:
-        size_t sub_start;
-        size_t n_sub;
+        void on_channel_cfg_update(cfg::dmx_config_t const *config);
         uint8_t rx_buffer[DMX_MAX_FRAME_SIZE];
-        TaskHandle_t task_handle;
-        MessageBufferHandle_t queue_handle;
-        on_new_chan_values_t on_new_chan_values;
-        void *on_new_chan_values_context;
+        TaskHandle_t packet_task_handle;
+        on_dmx_slot_vals_sub *slot_vals_subs;
+        MessageBufferHandle_t packet_queue_handle;
+        // double_buf<cfg::dmx_config_t> dmx_config;
+        task::lock<cfg::dmx_config_t> dmx_config;
+        xSemaphoreHandle slot_vals_subs_mutex;
     };
 }

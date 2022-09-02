@@ -45,12 +45,33 @@ void thread::task_func()
     /* suspend until the userapp thread calls led::resume_all() */
     vTaskSuspend(handle);
 
+    assert(render_config_param != nullptr);
+    assert(tc[0] != nullptr);
+    assert(tc[1] != nullptr);
+    assert(tp != nullptr);
+
     ret_code_t ret;
     uint8_t tc_idx = 0;
 
-    ret = render->prepare_config();
+    /* retrieve the renderer config, or set up default if it is unavailable */
+    ret = render_config_param->get(&render_config);
+    if (ret == FDS_ERR_NOT_FOUND) {
+        render_config.color_mode = (uint8_t)led::color_mode::rgb;
+        render_config.n_leds = MAX_LEDS_PER_THREAD;
+        render_config.refresh_msec = DEFAULT_REFRESH_RATE_MSEC;
+        ret = render_config_param->set(&render_config);
+    }
     APP_ERROR_CHECK(ret);
 
+    /* subscribe to the renderer config */
+    ret = render_config_param->subscribe(this, [](void *context, void const *data, size_t size) {
+        auto self = (thread*)context;
+        assert(size >= sizeof(cfg::led_render_t));
+        self->on_render_config_change((cfg::led_render_t*)data);
+    });
+    APP_ERROR_CHECK(ret);
+
+    /* set the transport completion callback */
     tp->on_send_complete(this, [](uint8_t *buffer, size_t length, BaseType_t *do_context_switch, void *context) {
         unused(buffer);
         unused(length);
@@ -60,6 +81,12 @@ void thread::task_func()
 
         return true;
     });
+
+    /* set initial values in the renderer */
+    auto props = renderer_props {
+        .render_config = render_config
+    };
+    render->init_render(props);
 
     auto cur_tc = tc[tc_idx];
 
@@ -74,8 +101,6 @@ void thread::task_func()
     ret = tp->set_buffer(cur_tc->ptr(), cur_tc->len());
     APP_ERROR_CHECK(ret);
 
-    TickType_t cfg_callback_time = 0;
-
     while (1) {
         auto now = time::ticks();
 
@@ -87,16 +112,14 @@ void thread::task_func()
         tc_idx = (tc_idx + 1) & 1;
         cur_tc = tc[tc_idx];
 
+        props.render_config = render_config;
+        props.dmx_config = dmx_config;
+        memcpy(props.dmx_vals, dmx_vals, std::min(sizeof(props.dmx_vals), sizeof(dmx_vals)));
+
         if (render) {
             cur_tc->clear();
-            ret = render->render(cur_tc, refresh_msec);
+            ret = render->render(cur_tc, props);
             APP_ERROR_CHECK(ret);
-
-            if (cfg_callback_time >= CFG_UPDATE_INTERVAL_MSEC) {
-                cfg_callback_time = 0;
-                ret = render->check_config();
-                APP_ERROR_CHECK(ret);
-            }
         }
 
         /* wait until `send()` is finished */
@@ -111,7 +134,6 @@ void thread::task_func()
         APP_ERROR_CHECK(ret);
 
         vTaskDelayUntil(&now, pdMS_TO_TICKS(refresh_msec));
-        cfg_callback_time += refresh_msec;
     }
 }
 
@@ -124,6 +146,12 @@ void thread::on_send_complete(BaseType_t *do_context_switch)
 {
     auto status = xTaskNotifyFromISR(handle, SEND_COMPLETE, eSetValueWithoutOverwrite, do_context_switch);
     assert(status == pdPASS);
+}
+
+void thread::on_render_config_change(cfg::led_render_t *config)
+{
+    NRF_LOG_DEBUG("config change: mode=%u, nleds=%u, refresh=%u", config->color_mode, config->n_leds, config->refresh_msec);
+    render_config = *config;
 }
 
 void led::resume_all()

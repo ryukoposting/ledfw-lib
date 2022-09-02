@@ -18,8 +18,8 @@ void vApplicationIdleHook()
 {
     static int idle_count = 0;
 
-    ret_code_t ret;
 #if defined(USE_LESC) && USE_LESC
+    ret_code_t ret;
     ret = nrf_ble_lesc_request_handler();
 #endif
 
@@ -57,12 +57,12 @@ void task::schedule_fds_gc_from_isr(BaseType_t *do_yield)
     xTaskNotifyFromISR(m_gc_task, NOTIFY_FDS_GC, eSetBits, do_yield);
 }
 
-void schedule_pm_gc()
+void task::schedule_pm_gc()
 {
     xTaskNotify(m_gc_task, NOTIFY_PEERS_GC, eSetBits);
 }
 
-void schedule_pm_gc_from_isr(BaseType_t *do_yield)
+void task::schedule_pm_gc_from_isr(BaseType_t *do_yield)
 {
     xTaskNotifyFromISR(m_gc_task, NOTIFY_PEERS_GC, eSetBits, do_yield);
 }
