@@ -12,6 +12,7 @@ using namespace dmx;
 
 struct char_write {
     enum { CONFIG, VALUE } kind;
+    size_t n_values;
     union {
         cfg::dmx_config_t config;
         uint8_t value[MAX_USER_APP_SLOTS];
@@ -121,6 +122,7 @@ static void on_values_write(ble_gatts_evt_write_t const &event)
     char_write data { char_write::VALUE };
     if (event.data && event.len > 0 && event.len <= MAX_USER_APP_SLOTS) {
         memcpy(data.value, event.data, event.len);
+        data.n_values = event.len;
         xQueueSend(m_dmx_char_write_queue, &data, pdMS_TO_TICKS(2));
     }
 }
@@ -146,7 +148,7 @@ static void dmx_char_write_handler(void *arg)
         xQueueReceive(m_dmx_char_write_queue, &evt, portMAX_DELAY);
 
         if (evt.kind == char_write::VALUE) {
-            auto vals = dmx_slot_vals { sizeof(evt.value), evt.value };
+            auto vals = dmx_slot_vals { evt.n_values, evt.value };
             m_dmx_thread->send(&vals);
         }
 
