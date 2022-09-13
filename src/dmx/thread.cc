@@ -83,6 +83,12 @@ void dmx::thread::packet_task_func()
     }
     APP_ERROR_CHECK(ret);
 
+    xSemaphoreTake(slot_vals_subs_mutex, portMAX_DELAY);
+    for (auto cb = slot_vals_subs; cb; cb = cb->next) {
+        cb->callback(cb->context, nullptr, &dcfg);
+    }
+    xSemaphoreGive(slot_vals_subs_mutex);
+
     while (1) {
         if (!packet_queue_handle)
             vTaskSuspend(nullptr);
