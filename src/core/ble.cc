@@ -32,11 +32,11 @@ NRF_LOG_MODULE_REGISTER();
 #define APP_ADV_DURATION MSEC_TO_UNITS(4000, UNIT_10_MS)    /** Advertising duration */
 
 #define MIN_CONN_INTERVAL_NORMAL MSEC_TO_UNITS(120, UNIT_1_25_MS)  /** Minimum acceptable connection interval */
-#define MAX_CONN_INTERVAL_NORMAL MSEC_TO_UNITS(240, UNIT_1_25_MS)  /** Maximum acceptable connection interval */
+#define MAX_CONN_INTERVAL_NORMAL MSEC_TO_UNITS(165, UNIT_1_25_MS)  /** Maximum acceptable connection interval */
 #define SLAVE_LATENCY_NORMAL     0                                 /** Slave latency. */
 
-#define MIN_CONN_INTERVAL_HIGH_SPEED MSEC_TO_UNITS(90,  UNIT_1_25_MS)  /** Minimum acceptable connection interval */
-#define MAX_CONN_INTERVAL_HIGH_SPEED MSEC_TO_UNITS(120, UNIT_1_25_MS)  /** Maximum acceptable connection interval */
+#define MIN_CONN_INTERVAL_HIGH_SPEED MSEC_TO_UNITS(75,  UNIT_1_25_MS)  /** Minimum acceptable connection interval */
+#define MAX_CONN_INTERVAL_HIGH_SPEED MSEC_TO_UNITS(105, UNIT_1_25_MS)  /** Maximum acceptable connection interval */
 #define SLAVE_LATENCY_HIGH_SPEED     0                                 /** Slave latency. */
 
 #define CONN_SUP_TIMEOUT MSEC_TO_UNITS(4000, UNIT_10_MS)    /** Connection supervisory time-out */
