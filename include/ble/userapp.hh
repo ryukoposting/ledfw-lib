@@ -19,7 +19,7 @@ namespace userapp {
     
         uint16_t service_handle() override;
 
-        ret_code_t update_app_info(desc const &desc, app_state appst, storage_state storst);
+        ret_code_t update_app_info(desc const &desc, cfg::dmx_config_t const &config, app_state appst, storage_state storst);
 
         ret_code_t update_app_info(app_state appst, storage_state storst);
 

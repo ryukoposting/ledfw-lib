@@ -146,6 +146,14 @@ ret_code_t userapp::service::init()
         m_dmx_explorer = service::dmx_explorer_char();
         ret = add_characteristic(m_dmx_explorer);
         VERIFY_SUCCESS(ret);
+
+        auto dmx_config_param = cfg::dmx::config;
+        dmx_config_param.subscribe(nullptr, [](void *context, void const *data, size_t length) {
+            unused(context);
+            auto config = *(cfg::dmx_config_t const*)data;
+            auto d = desc();
+            service().update_app_info(d, config, get_app_state(), get_storage_state());
+        });
     }
 
     return ret;
@@ -157,7 +165,7 @@ struct appinfo_dmx_iter {
     size_t n_slots;
 };
 
-ret_code_t userapp::service::update_app_info(desc const &desc, app_state appst, storage_state storst)
+ret_code_t userapp::service::update_app_info(desc const &desc, cfg::dmx_config_t const &config, app_state appst, storage_state storst)
 {
     ret_code_t ret;
     desc_tbl tbl;
@@ -175,17 +183,16 @@ ret_code_t userapp::service::update_app_info(desc const &desc, app_state appst, 
     ret = set_provider_name(tbl.provider_name);
     VERIFY_SUCCESS(ret);
 
-    size_t cur_pers = 0; // TODO
     size_t n_pers = desc.n_dmx_pers();
     size_t n_slots = 0;
-    if (n_pers > cur_pers) {
-        auto pers = dmx_pers(desc.dmx_pers_tbl()[cur_pers]);
+    if (n_pers > config.personality) {
+        auto pers = dmx_pers(desc.dmx_pers_tbl()[config.personality]);
         n_slots = pers.n_dmx_slots();
     }
 
     dmx_info[I_DMX_VER] = DMX_INFO_VERSION;
     dmx_info[I_DMX_N_PERSONALITIES] = desc.n_dmx_pers();
-    dmx_info[I_DMX_CUR_PERSONALITY] = cur_pers; // TODO
+    dmx_info[I_DMX_CUR_PERSONALITY] = config.personality;
     dmx_info[I_DMX_N_SLOTS] = n_slots;
 
     ret = m_dmx_info.set_value(dmx_info, DMX_INFO_LEN);
@@ -312,7 +319,12 @@ ret_code_t userapp::send_state()
     auto storst = get_storage_state();
     auto d = desc();
 
-    ret = service().update_app_info(d, appst, storst);
+    auto dmx_config_param = cfg::dmx::config;
+    cfg::dmx_config_t config;
+    ret = dmx_config_param.get(&config);
+    VERIFY_SUCCESS(ret);
+
+    ret = service().update_app_info(d, config, appst, storst);
     VERIFY_SUCCESS(ret);
 
     return ret;
