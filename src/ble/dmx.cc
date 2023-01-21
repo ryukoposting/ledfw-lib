@@ -4,6 +4,7 @@
 #include "ble/dmx.hh"
 #include "dmx.hh"
 #include "cfg.hh"
+#include "userapp.hh"
 #include "task/lock.hh"
 
 using namespace dmx;
@@ -142,6 +143,15 @@ static void dmx_char_write_handler(void *arg)
 
     while (!m_dmx_thread) vTaskDelay(10);
 
+    auto config = cfg::dmx::config;
+
+    config.subscribe(nullptr, [](void *context, void const *data, size_t length) {
+        unused(context);
+        unused(data);
+        unused(length);
+        userapp::queue_send_state();
+    });
+
     while (1) {
         char_write evt = {};
 
@@ -153,7 +163,6 @@ static void dmx_char_write_handler(void *arg)
         }
 
         if (evt.kind == char_write::CONFIG) {
-            auto config = cfg::dmx::config;
             config.set(&evt.config);
             // m_dmx_thread->send(&evt.config);
         }

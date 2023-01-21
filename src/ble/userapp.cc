@@ -146,24 +146,10 @@ ret_code_t userapp::service::init()
         m_dmx_explorer = service::dmx_explorer_char();
         ret = add_characteristic(m_dmx_explorer);
         VERIFY_SUCCESS(ret);
-
-        auto dmx_config_param = cfg::dmx::config;
-        dmx_config_param.subscribe(nullptr, [](void *context, void const *data, size_t length) {
-            unused(context);
-            auto config = *(cfg::dmx_config_t const*)data;
-            auto d = desc();
-            service().update_app_info(d, config, get_app_state(), get_storage_state());
-        });
     }
 
     return ret;
 }
-
-struct appinfo_dmx_iter {
-    uint8_t cur_dmx_personality;
-    size_t n_personalities;
-    size_t n_slots;
-};
 
 ret_code_t userapp::service::update_app_info(desc const &desc, cfg::dmx_config_t const &config, app_state appst, storage_state storst)
 {
